@@ -147,10 +147,12 @@ SmallVector<Operation *> ReverseOp::getTiledImplementation(
 //===----------------------------------------------------------------------===//
 
 void TileOp::build(mlir::OpBuilder &builder, mlir::OperationState &result,
-                   Value tileSize, ValueRange outs,
+                   Value tileSize, ValueRange outs, int64_t tiledDim,
                    TileOp::TileOpBodyBuilderFn bodyBuilder) {
   result.addOperands(tileSize);
   result.addOperands(outs);
+  result.addAttribute(TileOp::getTiledDimAttrName(),
+                      builder.getI64IntegerAttr(tiledDim));
   result.addTypes(outs.getType());
 
   Region *bodyRegion = result.addRegion();
@@ -181,11 +183,19 @@ void TileOp::build(mlir::OpBuilder &builder, mlir::OperationState &result,
               bodyBlock.getArgument(1), bodyBlock.getArguments().drop_front(2));
 }
 
+void TileOp::build(mlir::OpBuilder &builder, mlir::OperationState &result,
+                   Value tileSize, ValueRange outs,
+                   TileOp::TileOpBodyBuilderFn bodyBuilder) {
+  TileOp::build(builder, result, tileSize, outs, 0, bodyBuilder);
+}
+
 // TODO(#81): Impl me.
 static LogicalResult verify(TileOp op) { return success(); }
 
 static void print(OpAsmPrinter &p, TileOp op) {
-  p << ' ' << op.tile_sizes() << ' ';
+  p << ' ' << op.tile_size() << ' ';
+  if (op.tiled_dim() > 0)
+    p << "tiled_dim = " << op.tiled_dim() << ' ';
   if (!op.outs().empty()) {
     p << "outs(";
     llvm::interleaveComma(op.outs(), p,
@@ -196,7 +206,8 @@ static void print(OpAsmPrinter &p, TileOp op) {
   p.printRegion(op.region(),
                 /*printEntryBlockArgs=*/true,
                 /*printBlockTerminators=*/true);
-  p.printOptionalAttrDict(op->getAttrs());
+  p.printOptionalAttrDict(op->getAttrs(),
+                          /*elidedAttrs=*/{TileOp::getTiledDimAttrName()});
 }
 
 static ParseResult parseTileOp(OpAsmParser &parser, OperationState &result) {
@@ -215,6 +226,13 @@ static ParseResult parseTileOp(OpAsmParser &parser, OperationState &result) {
       parser.resolveOperand(tileSizes, tileSizesType, result.operands))
     return failure();
 
+  if (succeeded(parser.parseOptionalKeyword(TileOp::getTiledDimAttrName()))) {
+    outputsOperandsLoc = parser.getCurrentLocation();
+    Attribute valueAttr;
+    parser.parseAttribute(valueAttr, TileOp::getTiledDimAttrName(),
+                          result.attributes);
+  }
+
   if (succeeded(parser.parseOptionalKeyword("outs"))) {
     bool _1;
     SmallVector<NamedAttrList> _2;
@@ -222,8 +240,9 @@ static ParseResult parseTileOp(OpAsmParser &parser, OperationState &result) {
     outputsOperandsLoc = parser.getCurrentLocation();
     if (mlir::function_interface_impl::parseFunctionArgumentList(
             parser,
-            /*allowAttributes=*/false, /*allowVariadic=*/false, outsOperands,
-            outsTypes, /*argAttrs=*/_2, /*argLocations=*/_3,
+            /*allowAttributes=*/false,
+            /*allowVariadic=*/false, outsOperands, outsTypes, /*argAttrs=*/_2,
+            /*argLocations=*/_3,
             /*isVariadic=*/_1) ||
         parser.resolveOperands(outsOperands, outsTypes, outputsOperandsLoc,
                                result.operands))
@@ -380,10 +399,12 @@ PerformConcurrentlyOp InParallelOp::getTerminator() {
 //===----------------------------------------------------------------------===//
 
 // Build a ParallelInsertSliceOp with mixed static and dynamic entries.
-void ParallelInsertSliceOp::build(
-    OpBuilder &b, OperationState &result, Value source, Value dest,
-    ArrayRef<OpFoldResult> offsets, ArrayRef<OpFoldResult> sizes,
-    ArrayRef<OpFoldResult> strides, ArrayRef<NamedAttribute> attrs) {
+void ParallelInsertSliceOp::build(OpBuilder &b, OperationState &result,
+                                  Value source, Value dest,
+                                  ArrayRef<OpFoldResult> offsets,
+                                  ArrayRef<OpFoldResult> sizes,
+                                  ArrayRef<OpFoldResult> strides,
+                                  ArrayRef<NamedAttribute> attrs) {
   SmallVector<int64_t> staticOffsets, staticSizes, staticStrides;
   SmallVector<Value> dynamicOffsets, dynamicSizes, dynamicStrides;
   dispatchIndexOpFoldResults(offsets, dynamicOffsets, staticOffsets,
@@ -399,10 +420,10 @@ void ParallelInsertSliceOp::build(
 }
 
 // Build a ParallelInsertSliceOp with dynamic entries.
-void ParallelInsertSliceOp::build(
-    OpBuilder &b, OperationState &result, Value source, Value dest,
-    ValueRange offsets, ValueRange sizes, ValueRange strides,
-    ArrayRef<NamedAttribute> attrs) {
+void ParallelInsertSliceOp::build(OpBuilder &b, OperationState &result,
+                                  Value source, Value dest, ValueRange offsets,
+                                  ValueRange sizes, ValueRange strides,
+                                  ArrayRef<NamedAttribute> attrs) {
   SmallVector<OpFoldResult> offsetValues = llvm::to_vector<4>(
       llvm::map_range(offsets, [](Value v) -> OpFoldResult { return v; }));
   SmallVector<OpFoldResult> sizeValues = llvm::to_vector<4>(

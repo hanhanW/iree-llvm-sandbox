@@ -29,7 +29,7 @@ all_names = [                    \
 def all_experts(fun_name):
   return [
     # Note: `\` char at the end of next line prevents formatter reflows, keep it.
-    e.print_ir(after_all=False, at_begin=False, llvm=False) for e in [ \
+    e.print_ir(after_all=True, at_begin=True, llvm=False) for e in [ \
         Tile(fun_name,
              op_name,
              tile_sizes=[6, 32, 1],
@@ -99,17 +99,7 @@ def main():
       "matmul benchmark",
       default_n_iters=100,
       default_problem_sizes_list=[ \
-        [1, 384, 384],
-        [128, 384, 384],
-        [128, 1536, 384],
-        [128, 384, 1536],
-        [192, 128, 256],
-        [260, 280, 300],
-        [1000, 1000, 1000],
-        [1020, 1020, 1020],
-        [1020, 1021, 1022],
-        [1024, 1024, 1024],
-        [2048, 2048, 347]],
+        [4, 16, 8]],
       default_expert_list=all_names,
       default_dynamic_at_compile_time_list=[
           [],  # case 1: static at compile time
@@ -117,9 +107,9 @@ def main():
           keys  # case 3: fully dynamic at compile time
       ],
       default_spec_list=[
-          'km,kn',  # C += A^T.B  fastest
+          # 'km,kn',  # C += A^T.B  fastest
           'mk,kn',  # C += A.B
-          'mk,nk'  # C += A.B^T  slowest
+          # 'mk,nk'  # C += A.B^T  slowest
       ])
 
   for dynamic_at_compile_time in args.dynamic_at_compile_time_list:
@@ -161,7 +151,8 @@ def main():
                    dump_data_to_file=args.dump_data,
                    numpy_benchmark=numpy_kernel,
                    pytorch_benchmark=pytorch_kernel,
-                   backends=['strategy', 'dialect'])
+                   backends=['strategy'],
+                   zero_at_each_iteration = True)
 
 
 if __name__ == '__main__':
